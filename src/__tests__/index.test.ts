@@ -77,7 +77,6 @@ describe('Morphik MCP Server', () => {
       const result = await makeMorphikRequest({
         url: '/documents/test-doc-123',
         method: 'GET',
-        apiKey: 'test-api-key'
       });
       
       // Verify request
@@ -86,7 +85,7 @@ describe('Morphik MCP Server', () => {
         expect.objectContaining({
           method: 'GET',
           headers: expect.objectContaining({
-            'Authorization': 'Bearer test-api-key',
+            'User-Agent': expect.any(String)
           })
         })
       );
@@ -111,7 +110,6 @@ describe('Morphik MCP Server', () => {
         url: '/ingest/text',
         method: 'POST',
         body: requestBody,
-        apiKey: 'test-api-key'
       });
       
       // Verify request
@@ -120,7 +118,6 @@ describe('Morphik MCP Server', () => {
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({
-            'Authorization': 'Bearer test-api-key',
             'Content-Type': 'application/json'
           }),
           body: JSON.stringify(requestBody)
@@ -142,7 +139,6 @@ describe('Morphik MCP Server', () => {
       const result = await makeMorphikRequest({
         url: '/documents/nonexistent',
         method: 'GET',
-        apiKey: 'test-api-key'
       });
       
       // Verify error is logged

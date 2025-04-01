@@ -10,13 +10,11 @@ export async function makeMorphikRequest<T>({
   url,
   method = "GET",
   body = undefined,
-  apiKey = undefined,
   isMultipart = false,
 }: {
   url: string;
   method?: string;
   body?: any;
-  apiKey?: string;
   isMultipart?: boolean;
 }): Promise<T | null> {
   const fullUrl = url.startsWith("http") ? url : `${MORPHIK_API_BASE}${url}`;
@@ -25,10 +23,6 @@ export async function makeMorphikRequest<T>({
   const headers: Record<string, string> = {
     "User-Agent": USER_AGENT,
   };
-  
-  if (apiKey) {
-    headers["Authorization"] = `Bearer ${apiKey}`;
-  }
   
   if (!isMultipart && body !== undefined) {
     headers["Content-Type"] = "application/json";
@@ -126,34 +120,6 @@ interface DocumentContent {
   filename?: string;
 }
 
-interface CompletionQueryRequest {
-  query: string;
-  filters?: Record<string, any>;
-  k?: number;
-  min_score?: number;
-  use_reranking?: boolean;
-  use_colpali?: boolean;
-  graph_name?: string;
-  hop_depth?: number;
-  include_paths?: boolean;
-  max_tokens?: number;
-  temperature?: number;
-}
-
-interface CompletionResponse {
-  completion: string;
-  usage: Record<string, number>;
-  finish_reason?: string;
-  sources?: ChunkSource[];
-  metadata?: Record<string, any>;
-}
-
-interface ChunkSource {
-  document_id: string;
-  chunk_number: number;
-  score?: number;
-}
-
 interface RetrieveRequest {
   query: string;
   filters?: Record<string, any>;
@@ -181,14 +147,13 @@ const server = new McpServer({
 // 1. Ingest Text Document
 server.tool(
   "ingest-text",
-  "Ingest a text document into Morphik",
+  "Unlock knowledge retrieval by seamlessly adding text content to Morphik's powerful knowledge base. This essential first step ensures your valuable information becomes instantly searchable, helping users find exactly what they need. Perfect for documentation, research findings, support articles, or any text that needs to be discoverable.",
   {
     content: z.string().describe("Text content to ingest"),
     filename: z.string().optional().describe("Optional filename to help determine content type"),
     metadata: z.record(z.any()).optional().describe("Optional metadata dictionary"),
-    apiKey: z.string().describe("Morphik API key for authentication"),
   },
-  async ({ content, filename, metadata, apiKey }) => {
+  async ({ content, filename, metadata }) => {
     // Prepare request body
     const requestBody: IngestTextRequest = {
       content,
@@ -201,7 +166,6 @@ server.tool(
       url: "/ingest/text",
       method: "POST",
       body: requestBody,
-      apiKey,
     });
 
     if (!response) {
@@ -229,21 +193,21 @@ server.tool(
 // 2. Document Retrieval (Chunks)
 server.tool(
   "retrieve-chunks",
-  "Retrieve relevant chunks from Morphik based on a query",
+  "IMPORTANT: Use this tool for EVERY user question that requires factual information or knowledge retrieval. This essential tool finds the most relevant content chunks from your knowledge base, providing precise, accurate, and up-to-date information to answer user questions. By retrieving specific text segments rather than entire documents, you'll get exactly the context needed for accurate responses while maintaining source attribution. Always use this tool first before answering knowledge-based questions to ensure responses are grounded in your actual data.",
   {
     query: z.string().describe("The search query"),
     filters: z.record(z.any()).optional().describe("Optional metadata filters"),
     k: z.number().optional().describe("Number of results to return (default: 4)"),
     minScore: z.number().optional().describe("Minimum relevance score (default: 0)"),
-    apiKey: z.string().describe("Morphik API key for authentication"),
   },
-  async ({ query, filters, k, minScore, apiKey }) => {
+  async ({ query, filters, k, minScore }) => {
     // Prepare request body
     const requestBody: RetrieveRequest = {
       query,
       filters: filters || {},
       k: k || 4,
       min_score: minScore || 0,
+      use_colpali: true, // Enable colpali by default
     };
 
     // Make API request
@@ -251,7 +215,6 @@ server.tool(
       url: "/retrieve/chunks",
       method: "POST",
       body: requestBody,
-      apiKey,
     });
 
     if (!response || response.length === 0) {
@@ -265,18 +228,45 @@ server.tool(
       };
     }
 
-    // Format the results
-    const chunks = response.map(chunk => {
-      return `[Score: ${chunk.score.toFixed(2)}] ${chunk.content}\n(Document: ${chunk.document_id}, Chunk: ${chunk.chunk_number})`;
+    // Format the results with support for images
+    const contentItems = response.map(chunk => {
+      // For images, check if metadata indicates it's an image
+      if (chunk.metadata && chunk.metadata.is_image === true) {
+        // Extract the base64 data from the data URI (remove the prefix if present)
+        let imageData = chunk.content;
+        if (imageData.startsWith('data:')) {
+          // Remove the prefix (e.g., "data:image/png;base64,")
+          imageData = imageData.split(',')[1] || imageData;
+        }
+        
+        // Create a data URI for the image
+        const dataUri = `data:image/png;base64,${imageData}`;
+        
+        return {
+          type: "resource" as const,
+          resource: {
+            uri: dataUri,
+            mimeType: "image/png", // Images are always PNG
+            blob: imageData
+          }
+        };
+      }
+      
+      // For text content
+      return {
+        type: "text" as const,
+        text: `[Score: ${chunk.score.toFixed(2)}] ${chunk.content}\n(Document: ${chunk.document_id}, Chunk: ${chunk.chunk_number})`
+      };
+    });
+
+    // Add summary text at the beginning
+    contentItems.unshift({
+      type: "text" as const,
+      text: `Retrieved ${response.length} chunks:`
     });
 
     return {
-      content: [
-        {
-          type: "text",
-          text: `Retrieved ${response.length} chunks:\n\n${chunks.join("\n\n")}`,
-        },
-      ],
+      content: contentItems,
     };
   },
 );
@@ -284,21 +274,21 @@ server.tool(
 // 3. Document Retrieval (Documents)
 server.tool(
   "retrieve-docs",
-  "Retrieve relevant documents from Morphik based on a query",
+  "Access complete documents relevant to user questions with this powerful semantic search capability. Unlike chunk retrieval, this tool returns entire documents, making it ideal for situations requiring comprehensive context or when you need to understand full articles, manuals, or reports. The advanced matching algorithm ensures you receive the most valuable documents based on semantic meaning rather than just keyword matching, dramatically improving the quality and relevance of your responses.",
   {
     query: z.string().describe("The search query"),
     filters: z.record(z.any()).optional().describe("Optional metadata filters"),
     k: z.number().optional().describe("Number of results to return (default: 4)"),
     minScore: z.number().optional().describe("Minimum relevance score (default: 0)"),
-    apiKey: z.string().describe("Morphik API key for authentication"),
   },
-  async ({ query, filters, k, minScore, apiKey }) => {
+  async ({ query, filters, k, minScore }) => {
     // Prepare request body
     const requestBody: RetrieveRequest = {
       query,
       filters: filters || {},
       k: k || 4,
       min_score: minScore || 0,
+      use_colpali: true, // Enable colpali by default
     };
 
     // Make API request
@@ -306,111 +296,53 @@ server.tool(
       url: "/retrieve/docs",
       method: "POST",
       body: requestBody,
-      apiKey,
     });
 
     if (!response || response.length === 0) {
       return {
         content: [
           {
-            type: "text",
+            type: "text" as const,
             text: "No relevant documents found for the query",
           },
         ],
       };
     }
 
-    // Format the results
-    const docs = response.map(doc => {
+    // Format the results, handling potential image content
+    const contentItems = response.map(doc => {
       const content = doc.content.type === "url" 
         ? `[URL: ${doc.content.value}]` 
         : doc.content.value.substring(0, 100) + "...";
       
-      return `[Score: ${doc.score.toFixed(2)}] ${content}\n(Document ID: ${doc.document_id})`;
-    });
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Retrieved ${response.length} documents:\n\n${docs.join("\n\n")}`,
-        },
-      ],
-    };
-  },
-);
-
-// 4. Query Completion
-server.tool(
-  "query",
-  "Generate a completion using relevant chunks as context",
-  {
-    query: z.string().describe("The user's question"),
-    filters: z.record(z.any()).optional().describe("Optional metadata filters"),
-    k: z.number().optional().describe("Number of chunks to use (default: 4)"),
-    maxTokens: z.number().optional().describe("Maximum number of tokens to generate"),
-    temperature: z.number().optional().describe("Temperature for generation"),
-    apiKey: z.string().describe("Morphik API key for authentication"),
-  },
-  async ({ query, filters, k, maxTokens, temperature, apiKey }) => {
-    // Prepare request body
-    const requestBody: CompletionQueryRequest = {
-      query,
-      filters: filters || {},
-      k: k || 4,
-      max_tokens: maxTokens,
-      temperature,
-    };
-
-    // Make API request
-    const response = await makeMorphikRequest<CompletionResponse>({
-      url: "/query",
-      method: "POST",
-      body: requestBody,
-      apiKey,
-    });
-
-    if (!response) {
       return {
-        content: [
-          {
-            type: "text",
-            text: "Failed to generate completion",
-          },
-        ],
+        type: "text" as const,
+        text: `[Score: ${doc.score.toFixed(2)}] ${content}\n(Document ID: ${doc.document_id})`
       };
-    }
+    });
 
-    // Format sources if available
-    let sourcesText = "";
-    if (response.sources && response.sources.length > 0) {
-      sourcesText = "\n\nSources:\n" + response.sources.map(source => 
-        `- Document ${source.document_id}, Chunk ${source.chunk_number}${source.score ? ` (Score: ${source.score.toFixed(2)})` : ""}`
-      ).join("\n");
-    }
+    // Add summary text at the beginning
+    contentItems.unshift({
+      type: "text" as const,
+      text: `Retrieved ${response.length} documents:`
+    });
 
     return {
-      content: [
-        {
-          type: "text",
-          text: response.completion + sourcesText,
-        },
-      ],
+      content: contentItems,
     };
   },
 );
 
-// 5. List Documents
+// 4. List Documents
 server.tool(
   "list-documents",
-  "List documents in Morphik",
+  "Gain complete visibility into your knowledge base by exploring all available documents in the Morphik system. This tool provides a comprehensive overview of your content, allowing you to discover what information is available, understand document metadata, and identify knowledge gaps. Use this tool to help users understand what types of questions can be effectively answered based on your current knowledge repository.",
   {
     skip: z.number().optional().describe("Number of documents to skip (default: 0)"),
     limit: z.number().optional().describe("Maximum number of documents to return (default: 10)"),
     filters: z.record(z.any()).optional().describe("Optional metadata filters"),
-    apiKey: z.string().describe("Morphik API key for authentication"),
   },
-  async ({ skip, limit, filters, apiKey }) => {
+  async ({ skip, limit, filters }) => {
     // Prepare URL with query parameters
     const params = new URLSearchParams();
     if (skip !== undefined) params.append("skip", skip.toString());
@@ -423,7 +355,6 @@ server.tool(
       url,
       method: "POST", // POST because we need to send a filters object in the body
       body: filters || {},
-      apiKey,
     });
 
     if (!response || response.length === 0) {
@@ -469,20 +400,18 @@ export function processDocumentResponse(doc: Document): string {
   return details.join("\n");
 }
 
-// 6. Get Document
+// 5. Get Document
 server.tool(
   "get-document",
-  "Get a specific document from Morphik by ID",
+  "Access detailed information about specific documents in your knowledge base with this powerful retrieval tool. When you need comprehensive metadata, content details, or want to verify document attributes before providing information to users, this tool delivers the complete picture. Use it to confirm document existence, check metadata fields, or verify that specific information sources are available before promising answers on particular topics.",
   {
     documentId: z.string().describe("ID of the document to retrieve"),
-    apiKey: z.string().describe("Morphik API key for authentication"),
   },
-  async ({ documentId, apiKey }) => {
+  async ({ documentId }) => {
     // Make API request
     const response = await makeMorphikRequest<Document>({
       url: `/documents/${documentId}`,
-      method: "GET",
-      apiKey,
+      method: "POST",
     });
 
     if (!response) {
@@ -508,20 +437,18 @@ server.tool(
   },
 );
 
-// 7. Delete Document
+// 6. Delete Document
 server.tool(
   "delete-document",
-  "Delete a document from Morphik by ID",
+  "Maintain a clean, accurate knowledge base by removing outdated or irrelevant documents when necessary. This powerful management tool helps ensure your users always receive the most current and appropriate information. Use it to eliminate duplicate content, remove superseded information, or manage content lifecycle as part of your knowledge management strategy.",
   {
     documentId: z.string().describe("ID of the document to delete"),
-    apiKey: z.string().describe("Morphik API key for authentication"),
   },
-  async ({ documentId, apiKey }) => {
+  async ({ documentId }) => {
     // Make API request
     const response = await makeMorphikRequest<any>({
       url: `/documents/${documentId}`,
       method: "DELETE",
-      apiKey,
     });
 
     if (!response) {
