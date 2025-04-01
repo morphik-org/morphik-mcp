@@ -1,0 +1,21 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Can you help me list documents in my Morphik database?"
+        }
+      ]
+    }
+  ],
+  "tools": {
+    "morphik": {
+      "list-documents": {
+        "apiKey": "YOUR_API_KEY_HERE",
+        "limit": 5
+      }
+    }
+  }
+}

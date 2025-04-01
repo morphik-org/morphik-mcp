@@ -1,0 +1,41 @@
+{
+  "name": "morphik-mcp",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "bin": {
+    "morphik-mcp": "./build/index.js"
+  },
+  "scripts": {
+    "test": "jest",
+    "test:manual": "node --experimental-specifier-resolution=node --loader ts-node/esm src/test.ts",
+    "build": "tsc && chmod 755 build/index.js",
+    "start": "node build/index.js"
+  },
+  "files": [
+    "build"
+  ],
+  "keywords": [
+    "morphik",
+    "mcp",
+    "multimodal",
+    "database",
+    "retrieval"
+  ],
+  "author": "",
+  "license": "ISC",
+  "description": "MCP server for Morphik multimodal database",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.8.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^22.13.14",
+    "jest": "^29.7.0",
+    "node-fetch": "^3.3.2", 
+    "ts-jest": "^29.1.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.2"
+  }
+}
