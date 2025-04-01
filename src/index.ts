@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-const MORPHIK_API_BASE = "https://api.morphik.ai"; // Base URL for Morphik API
+const MORPHIK_API_BASE = "http://localhost:8000"; // Base URL for Morphik API
 const USER_AGENT = "morphik-mcp/1.0";
 
 // Helper function for making Morphik API requests
