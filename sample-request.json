@@ -13,7 +13,7 @@
   "tools": {
     "morphik": {
       "list-documents": {
-        "apiKey": "YOUR_API_KEY_HERE",
+        "apiKey": "",
         "limit": 5
       }
     }

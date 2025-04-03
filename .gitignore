@@ -68,3 +68,7 @@ mcp-docs.md
 CLAUDE.md
 openapi.json
 mcp-typescript-sdk.txt
+
+# Claude context files
+flatten-for-claude.js
+claude-context.txt

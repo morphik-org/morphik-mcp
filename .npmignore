@@ -1,0 +1,17 @@
+# Development files
+src/
+tsconfig.json
+jest.config.js
+*.test.*
+.github/
+.vscode/
+.git/
+.gitignore
+
+# Test files
+__tests__/
+sample-request.json
+example.json
+
+# Don't exclude the build directory
+!build/

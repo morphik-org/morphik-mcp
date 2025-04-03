@@ -1,10 +1,80 @@
+#!/usr/bin/env node
+
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import sharp from "sharp";
 
-const MORPHIK_API_BASE = "http://localhost:8000"; // Base URL for Morphik API
+// Parse command line arguments
+const args = process.argv.slice(2);
+let morphikApiBase = "http://localhost:8000"; // Default Base URL for Morphik API
+let authToken = ""; // Bearer token for authentication
+let uriProvided = false;
+
+// Parse URI format or URI argument
+for (let i = 0; i < args.length; i++) {
+  const arg = args[i];
+  if (arg.startsWith('--uri=')) {
+    uriProvided = true;
+    const uriValue = arg.substring(6);
+    
+    // Handle local case
+    if (uriValue === 'local' || uriValue === '') {
+      // Use default localhost URL
+      morphikApiBase = "http://localhost:8000";
+    }
+    // Check if it's a databridge URI format: databridge://<owner_id>:<token>@<host>
+    else if (uriValue.startsWith('databridge://')) {
+      try {
+        // Parse the databridge URI format
+        const uriWithoutProtocol = uriValue.replace('databridge://', '');
+        const [authPart, hostPart] = uriWithoutProtocol.split('@');
+        
+        if (authPart && hostPart) {
+          // Extract token from auth part (format: owner_id:token)
+          const [, token] = authPart.split(':');
+          
+          if (token) {
+            authToken = token;
+            // Always use HTTPS for Morphik API with authentication
+            morphikApiBase = `https://${hostPart}`;
+            // console.log("api is morphikApiBase: ", morphikApiBase);
+          }
+        }
+      } catch (error) {
+        console.error("Error parsing databridge URI:", error);
+        // Fall back to using the URI value directly
+        morphikApiBase = uriValue;
+      }
+    } else {
+      // Not a databridge URI, use as is
+      morphikApiBase = uriValue;
+    }
+  }
+}
+
+// If no URI was provided, use localhost
+if (!uriProvided) {
+  morphikApiBase = "http://localhost:8000";
+}
+
+const MORPHIK_API_BASE = morphikApiBase;
+const AUTH_TOKEN = authToken;
 const USER_AGENT = "morphik-mcp/1.0";
+
+// Log connection info with clear indication of mode
+if (MORPHIK_API_BASE === "http://localhost:8000") {
+  console.error(`Connecting to Morphik API in local mode: ${MORPHIK_API_BASE}`);
+} else {
+  console.error(`Connecting to Morphik API at: ${MORPHIK_API_BASE}`);
+}
+
+// Log authentication status
+if (AUTH_TOKEN) {
+  console.error('Authentication: Using bearer token from URI');
+} else {
+  console.error('Authentication: None (development mode)');
+}
 
 // Maximum image size for Claude (in bytes) - slightly under 1MB to be safe
 const MAX_IMAGE_SIZE = 900 * 1024; // 900KB
@@ -84,6 +154,11 @@ export async function makeMorphikRequest<T>({
   const headers: Record<string, string> = {
     "User-Agent": USER_AGENT,
   };
+  
+  // Add Authorization header if we have a token
+  if (AUTH_TOKEN) {
+    headers["Authorization"] = `Bearer ${AUTH_TOKEN}`;
+  }
   
   if (!isMultipart && body !== undefined) {
     headers["Content-Type"] = "application/json";
@@ -199,10 +274,6 @@ const server = new McpServer({
   name: "morphik",
   version: "1.0.0",
   capabilities: {
-    resources: {
-      subscribe: true,
-      listChanged: true
-    },
     tools: {},
   },
 });
@@ -576,82 +647,8 @@ server.tool(
   },
 );
 
-// Add resource listing capability for image discovery
-
-// Create a resource template with a list function
-const imageResourceTemplate = new ResourceTemplate(
-  "morphik://images/{documentId}",
-  {
-    // List function to discover all image resources
-    list: async () => {
-      // Get available documents
-      const documents = await makeMorphikRequest<Document[]>({
-        url: "/documents",
-        method: "POST",
-        body: {},
-      });
-      
-      if (!documents) return { resources: [] };
-      
-      // Filter for image documents and map to resources
-      const resources = documents
-        .filter(doc => doc.metadata && doc.metadata.is_image === true)
-        .map(doc => ({
-          uri: `morphik://images/${doc.external_id}`,
-          name: doc.filename || `Image ${doc.external_id}`,
-          mimeType: "image/png",
-          description: doc.metadata.description || "Image from Morphik database"
-        }));
-      
-      return { resources };
-    }
-  }
-);
-
-// Register the template resource (replacing the previous resource registration)
-server.resource(
-  "morphik-images", 
-  imageResourceTemplate,
-  // Metadata for the resource
-  { description: "Images from Morphik database", mimeType: "image/png" },
-  // Read callback with correct parameter destructuring
-  async (uri, variables) => {
-    const documentId = variables.documentId;
-    
-    // Get the document from Morphik
-    const document = await makeMorphikRequest<Document>({
-      url: `/documents/${documentId}`,
-      method: "POST",
-    });
-    
-    if (!document || !document.metadata || document.metadata.is_image !== true) {
-      throw new Error("Image resource not found");
-    }
-    
-    // Extract image data
-    let imageData = document.content;
-    if (imageData && imageData.startsWith('data:')) {
-      imageData = imageData.split(',')[1] || imageData;
-    }
-    
-    if (!imageData) {
-      throw new Error("Image data not found");
-    }
-    
-    // Resize the image if needed to stay under Claude's size limit
-    const resizedImageData = await resizeImageIfNeeded(imageData);
-    
-    return {
-      contents: [
-        {
-          uri: uri.toString(),
-          mimeType: "image/png", // Images are always PNG or WebP after resize
-          blob: resizedImageData
-        }
-      ]
-    };
-  }
-);
+// NOTE: Resource template code removed to prevent continuous /documents requests
+// Images are already handled directly in the retrieve-chunks and retrieve-docs tools
 
 async function main() {
   const transport = new StdioServerTransport();
