@@ -1,9 +1,70 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import sharp from "sharp";
 
 const MORPHIK_API_BASE = "http://localhost:8000"; // Base URL for Morphik API
 const USER_AGENT = "morphik-mcp/1.0";
+
+// Maximum image size for Claude (in bytes) - slightly under 1MB to be safe
+const MAX_IMAGE_SIZE = 900 * 1024; // 900KB
+
+/**
+ * Resizes an image to ensure it's under the maximum size limit for Claude
+ * @param imageData Base64-encoded image data
+ * @returns Resized base64-encoded image data
+ */
+async function resizeImageIfNeeded(imageData: string): Promise<string> {
+  // Convert base64 to buffer
+  const buffer = Buffer.from(imageData, 'base64');
+  
+  // If image is already under the size limit, return it as is
+  if (buffer.length <= MAX_IMAGE_SIZE) {
+    return imageData;
+  }
+  
+  // Calculate resize factor based on current size
+  const sizeFactor = Math.sqrt(MAX_IMAGE_SIZE / buffer.length);
+  
+  try {
+    // Get image metadata
+    const metadata = await sharp(buffer).metadata();
+    
+    // Calculate new dimensions, keeping aspect ratio
+    const newWidth = Math.floor((metadata.width || 800) * sizeFactor);
+    const newHeight = Math.floor((metadata.height || 600) * sizeFactor);
+    
+    console.error(`Resizing image from ${buffer.length} bytes (${metadata.width}x${metadata.height}) to target ${MAX_IMAGE_SIZE} bytes (${newWidth}x${newHeight})`);
+    
+    // Resize and optimize the image
+    const resizedImageBuffer = await sharp(buffer)
+      .resize(newWidth, newHeight)
+      .webp({ quality: 80 }) // Use webp for better compression
+      .toBuffer();
+    
+    console.error(`Resized image to ${resizedImageBuffer.length} bytes`);
+    
+    // If still too large, reduce quality further
+    if (resizedImageBuffer.length > MAX_IMAGE_SIZE) {
+      const qualityFactor = MAX_IMAGE_SIZE / resizedImageBuffer.length * 75; // Reduce quality proportionally
+      
+      const furtherResizedBuffer = await sharp(buffer)
+        .resize(newWidth, newHeight)
+        .webp({ quality: Math.floor(qualityFactor) })
+        .toBuffer();
+        
+      console.error(`Further resized image to ${furtherResizedBuffer.length} bytes with quality ${Math.floor(qualityFactor)}`);
+      
+      return furtherResizedBuffer.toString('base64');
+    }
+    
+    return resizedImageBuffer.toString('base64');
+  } catch (error) {
+    console.error("Error resizing image:", error);
+    // Fall back to original image if resize fails
+    return imageData;
+  }
+}
 
 // Helper function for making Morphik API requests
 export async function makeMorphikRequest<T>({
@@ -76,6 +137,7 @@ interface Document {
   additional_metadata?: Record<string, any>;
   access_control?: Record<string, string[]>;
   chunk_ids?: string[];
+  content?: string; // Added for document content access
 }
 
 interface StorageFileInfo {
@@ -137,7 +199,10 @@ const server = new McpServer({
   name: "morphik",
   version: "1.0.0",
   capabilities: {
-    resources: {},
+    resources: {
+      subscribe: true,
+      listChanged: true
+    },
     tools: {},
   },
 });
@@ -229,7 +294,7 @@ server.tool(
     }
 
     // Format the results with support for images
-    const contentItems = response.map(chunk => {
+    const contentItemPromises = response.map(async (chunk) => {
       // For images, check if metadata indicates it's an image
       if (chunk.metadata && chunk.metadata.is_image === true) {
         // Extract the base64 data from the data URI (remove the prefix if present)
@@ -239,17 +304,23 @@ server.tool(
           imageData = imageData.split(',')[1] || imageData;
         }
         
-        // Create a data URI for the image
-        const dataUri = `data:image/png;base64,${imageData}`;
-        
-        return {
-          type: "resource" as const,
-          resource: {
-            uri: dataUri,
-            mimeType: "image/png", // Images are always PNG
-            blob: imageData
-          }
-        };
+        try {
+          // Resize the image if needed to stay under Claude's size limit
+          const resizedImageData = await resizeImageIfNeeded(imageData);
+          
+          // Create a proper image resource in the format expected by MCP
+          return {
+            type: "image" as const,
+            data: resizedImageData, // Use the possibly resized image data
+            mimeType: "image/png" // Images are always PNG or WebP after resize
+          };
+        } catch (error) {
+          console.error("Error processing image data:", error);
+          return {
+            type: "text" as const,
+            text: `[Error: Could not process image from chunk ${chunk.chunk_number} in document ${chunk.document_id}]`
+          };
+        }
       }
       
       // For text content
@@ -258,6 +329,9 @@ server.tool(
         text: `[Score: ${chunk.score.toFixed(2)}] ${chunk.content}\n(Document: ${chunk.document_id}, Chunk: ${chunk.chunk_number})`
       };
     });
+    
+    // Wait for all content items to be processed (images may need to be resized)
+    const contentItems = await Promise.all(contentItemPromises);
 
     // Add summary text at the beginning
     contentItems.unshift({
@@ -310,7 +384,33 @@ server.tool(
     }
 
     // Format the results, handling potential image content
-    const contentItems = response.map(doc => {
+    const contentItemPromises = response.map(async (doc) => {
+      // Check for image documents
+      if (doc.metadata && doc.metadata.is_image === true) {
+        let imageData = doc.content.value;
+        if (imageData.startsWith('data:')) {
+          imageData = imageData.split(',')[1] || imageData;
+        }
+        
+        try {
+          // Resize the image if needed to stay under Claude's size limit
+          const resizedImageData = await resizeImageIfNeeded(imageData);
+          
+          return {
+            type: "image" as const,
+            data: resizedImageData,
+            mimeType: "image/png" // Images are always PNG or WebP after resize
+          };
+        } catch (error) {
+          console.error("Error processing image data:", error);
+          return {
+            type: "text" as const,
+            text: `[Error: Could not process image from document ${doc.document_id}]`
+          };
+        }
+      }
+      
+      // For text content
       const content = doc.content.type === "url" 
         ? `[URL: ${doc.content.value}]` 
         : doc.content.value.substring(0, 100) + "...";
@@ -320,6 +420,9 @@ server.tool(
         text: `[Score: ${doc.score.toFixed(2)}] ${content}\n(Document ID: ${doc.document_id})`
       };
     });
+    
+    // Wait for all content items to be processed (images may need to be resized)
+    const contentItems = await Promise.all(contentItemPromises);
 
     // Add summary text at the beginning
     contentItems.unshift({
@@ -471,6 +574,83 @@ server.tool(
       ],
     };
   },
+);
+
+// Add resource listing capability for image discovery
+
+// Create a resource template with a list function
+const imageResourceTemplate = new ResourceTemplate(
+  "morphik://images/{documentId}",
+  {
+    // List function to discover all image resources
+    list: async () => {
+      // Get available documents
+      const documents = await makeMorphikRequest<Document[]>({
+        url: "/documents",
+        method: "POST",
+        body: {},
+      });
+      
+      if (!documents) return { resources: [] };
+      
+      // Filter for image documents and map to resources
+      const resources = documents
+        .filter(doc => doc.metadata && doc.metadata.is_image === true)
+        .map(doc => ({
+          uri: `morphik://images/${doc.external_id}`,
+          name: doc.filename || `Image ${doc.external_id}`,
+          mimeType: "image/png",
+          description: doc.metadata.description || "Image from Morphik database"
+        }));
+      
+      return { resources };
+    }
+  }
+);
+
+// Register the template resource (replacing the previous resource registration)
+server.resource(
+  "morphik-images", 
+  imageResourceTemplate,
+  // Metadata for the resource
+  { description: "Images from Morphik database", mimeType: "image/png" },
+  // Read callback with correct parameter destructuring
+  async (uri, variables) => {
+    const documentId = variables.documentId;
+    
+    // Get the document from Morphik
+    const document = await makeMorphikRequest<Document>({
+      url: `/documents/${documentId}`,
+      method: "POST",
+    });
+    
+    if (!document || !document.metadata || document.metadata.is_image !== true) {
+      throw new Error("Image resource not found");
+    }
+    
+    // Extract image data
+    let imageData = document.content;
+    if (imageData && imageData.startsWith('data:')) {
+      imageData = imageData.split(',')[1] || imageData;
+    }
+    
+    if (!imageData) {
+      throw new Error("Image data not found");
+    }
+    
+    // Resize the image if needed to stay under Claude's size limit
+    const resizedImageData = await resizeImageIfNeeded(imageData);
+    
+    return {
+      contents: [
+        {
+          uri: uri.toString(),
+          mimeType: "image/png", // Images are always PNG or WebP after resize
+          blob: resizedImageData
+        }
+      ]
+    };
+  }
 );
 
 async function main() {
