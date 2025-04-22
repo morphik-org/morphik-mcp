@@ -23,11 +23,11 @@ for (let i = 0; i < args.length; i++) {
       // Use default localhost URL
       morphikApiBase = "http://localhost:8000";
     }
-    // Check if it's a databridge URI format: databridge://<owner_id>:<token>@<host>
-    else if (uriValue.startsWith('databridge://')) {
+    // Check if it's a morphik URI format: morphik://<owner_id>:<token>@<host>
+    else if (uriValue.startsWith('morphik://')) {
       try {
-        // Parse the databridge URI format
-        const uriWithoutProtocol = uriValue.replace('databridge://', '');
+        // Parse the morphik URI format
+        const uriWithoutProtocol = uriValue.replace('morphik://', '');
         const [authPart, hostPart] = uriWithoutProtocol.split('@');
         
         if (authPart && hostPart) {
@@ -42,12 +42,12 @@ for (let i = 0; i < args.length; i++) {
           }
         }
       } catch (error) {
-        console.error("Error parsing databridge URI:", error);
+        console.error("Error parsing morphik URI:", error);
         // Fall back to using the URI value directly
         morphikApiBase = uriValue;
       }
     } else {
-      // Not a databridge URI, use as is
+      // Not a morphik URI, use as is
       morphikApiBase = uriValue;
     }
   }
