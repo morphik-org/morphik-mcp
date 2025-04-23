@@ -8,7 +8,7 @@ import { Logger, LoggerOptions } from "./logger.js";
 
 // logger setup
 const loggerOptions: LoggerOptions = {
-  mode: process.env.LOG_MODE as 'verbose' | 'error' | 'none' || 'verbose'
+  mode: (process.env.LOG_MODE as 'verbose' | 'error' | 'none') || 'verbose'
 };
 const logger = new Logger(loggerOptions);
 
@@ -49,7 +49,7 @@ for (let i = 0; i < args.length; i++) {
           }
         }
       } catch (error) {
-        logger.error(`Error parsing morphik URI: ${error}\n`);
+        logger.error(`Error parsing morphik URI: ${error.stack || error}\n`);
         // Fall back to using the URI value directly
         morphikApiBase = uriValue;
       }
@@ -137,7 +137,7 @@ async function resizeImageIfNeeded(imageData: string): Promise<string> {
     
     return resizedImageBuffer.toString('base64');
   } catch (error) {
-    logger.error(`Error resizing image: ${error}\n`);
+    logger.error(`Error resizing image: ${error.stack || error}\n`);
     // Fall back to original image if resize fails
     return imageData;
   }
@@ -204,7 +204,7 @@ export async function makeMorphikRequest<T>({
     // Parse and return JSON response
     return await response.json() as T;
   } catch (error) {
-    logger.error(`Error making Morphik request: ${error}\n`);
+    logger.error(`Error making Morphik request: ${error.stack || error}\n`);
     return null;
   }
 }
@@ -683,6 +683,6 @@ async function main() {
 
 main().catch((error) => {
   logger.separator();
-  logger.error(`Fatal error in main(): ${error}\n`);
+  logger.error(`Fatal error in main(): ${error.stack || error}\n`);
   process.exit(1);
 });
