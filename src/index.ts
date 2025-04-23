@@ -4,6 +4,13 @@ import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mc
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import sharp from "sharp";
+import { Logger, LoggerOptions } from "./logger.js";
+
+// logger setup
+const loggerOptions: LoggerOptions = {
+  mode: process.env.LOG_MODE as 'verbose' | 'error' | 'none' || 'verbose'
+};
+const logger = new Logger(loggerOptions);
 
 // Parse command line arguments
 const args = process.argv.slice(2);
@@ -42,7 +49,7 @@ for (let i = 0; i < args.length; i++) {
           }
         }
       } catch (error) {
-        console.error("Error parsing morphik URI:", error);
+        logger.error(`Error parsing morphik URI: ${error}\n`);
         // Fall back to using the URI value directly
         morphikApiBase = uriValue;
       }
@@ -64,16 +71,16 @@ const USER_AGENT = "morphik-mcp/1.0";
 
 // Log connection info with clear indication of mode
 if (MORPHIK_API_BASE === "http://localhost:8000") {
-  console.error(`Connecting to Morphik API in local mode: ${MORPHIK_API_BASE}`);
+  logger.info(`Connecting to Morphik API in local mode: ${MORPHIK_API_BASE}\n`);
 } else {
-  console.error(`Connecting to Morphik API at: ${MORPHIK_API_BASE}`);
+  logger.info(`Connecting to Morphik API at: ${MORPHIK_API_BASE}\n`);
 }
 
 // Log authentication status
 if (AUTH_TOKEN) {
-  console.error('Authentication: Using bearer token from URI');
+  logger.info('Authentication: Using bearer token from URI\n');
 } else {
-  console.error('Authentication: None (development mode)');
+  logger.info('Authentication: None (development mode)\n');
 }
 
 // Maximum image size for Claude (in bytes) - slightly under 1MB to be safe
@@ -104,7 +111,7 @@ async function resizeImageIfNeeded(imageData: string): Promise<string> {
     const newWidth = Math.floor((metadata.width || 800) * sizeFactor);
     const newHeight = Math.floor((metadata.height || 600) * sizeFactor);
     
-    console.error(`Resizing image from ${buffer.length} bytes (${metadata.width}x${metadata.height}) to target ${MAX_IMAGE_SIZE} bytes (${newWidth}x${newHeight})`);
+    logger.info(`Resizing image from ${buffer.length} bytes (${metadata.width}x${metadata.height}) to target ${MAX_IMAGE_SIZE} bytes (${newWidth}x${newHeight})\n`);
     
     // Resize and optimize the image
     const resizedImageBuffer = await sharp(buffer)
@@ -112,7 +119,7 @@ async function resizeImageIfNeeded(imageData: string): Promise<string> {
       .webp({ quality: 80 }) // Use webp for better compression
       .toBuffer();
     
-    console.error(`Resized image to ${resizedImageBuffer.length} bytes`);
+    logger.info(`Resized image to ${resizedImageBuffer.length} bytes\n`);
     
     // If still too large, reduce quality further
     if (resizedImageBuffer.length > MAX_IMAGE_SIZE) {
@@ -123,14 +130,14 @@ async function resizeImageIfNeeded(imageData: string): Promise<string> {
         .webp({ quality: Math.floor(qualityFactor) })
         .toBuffer();
         
-      console.error(`Further resized image to ${furtherResizedBuffer.length} bytes with quality ${Math.floor(qualityFactor)}`);
+      logger.info(`Further resized image to ${furtherResizedBuffer.length} bytes with quality ${Math.floor(qualityFactor)}\n`);
       
       return furtherResizedBuffer.toString('base64');
     }
     
     return resizedImageBuffer.toString('base64');
   } catch (error) {
-    console.error("Error resizing image:", error);
+    logger.error(`Error resizing image: ${error}\n`);
     // Fall back to original image if resize fails
     return imageData;
   }
@@ -182,6 +189,9 @@ export async function makeMorphikRequest<T>({
       }
     }
     
+    // request details.
+    logger.info(`API Request: ${method} ${fullUrl}\n`);
+    
     // Make the request
     const response = await fetch(fullUrl, requestOptions);
     
@@ -194,7 +204,7 @@ export async function makeMorphikRequest<T>({
     // Parse and return JSON response
     return await response.json() as T;
   } catch (error) {
-    console.error("Error making Morphik request:", error);
+    logger.error(`Error making Morphik request: ${error}\n`);
     return null;
   }
 }
@@ -290,6 +300,9 @@ server.tool(
     metadata: z.record(z.any()).optional().describe("Optional metadata dictionary"),
   },
   async ({ content, filename, metadata }) => {
+    // Log tool call
+    logger.toolCall("ingest-text", { content: content.substring(0, 50) + "...", filename, metadata });
+    
     // Prepare request body
     const requestBody: IngestTextRequest = {
       content,
@@ -305,6 +318,7 @@ server.tool(
     });
 
     if (!response) {
+      logger.error("Failed to ingest text document\n");
       return {
         content: [
           {
@@ -315,6 +329,7 @@ server.tool(
       };
     }
 
+    logger.success(`Successfully ingested document with ID: ${response.external_id}\n`);
     return {
       content: [
         {
@@ -651,12 +666,23 @@ server.tool(
 // Images are already handled directly in the retrieve-chunks and retrieve-docs tools
 
 async function main() {
+  logger.separator();
+  logger.info("Starting Morphik MCP Server...\n");
+  
+  // Print server info
+  logger.info(`Server Name: morphik\n`);
+  logger.info(`API Endpoint: ${MORPHIK_API_BASE}\n`);
+  
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Morphik MCP Server running on stdio");
+  
+  logger.separator();
+  logger.success("Morphik MCP Server running on stdio\n");
+  logger.separator();
 }
 
 main().catch((error) => {
-  console.error("Fatal error in main():", error);
+  logger.separator();
+  logger.error(`Fatal error in main(): ${error}\n`);
   process.exit(1);
 });
