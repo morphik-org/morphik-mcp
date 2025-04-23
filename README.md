@@ -10,6 +10,7 @@ This MCP server allows Claude and other MCP-compatible AI assistants to interact
 - Document retrieval (by relevance to queries)
 - Document querying with LLM-powered completions
 - Document management (listing, getting, deleting)
+- File system navigation and file ingestion from paths
 
 ## Prerequisites
 
@@ -27,6 +28,9 @@ npx morphik-mcp
 
 # Connect to Morphik cloud platform (replace with your actual URI)
 npx morphik-mcp --uri=https://api.morphik.ai
+
+# Specify allowed directories for file operations (comma-separated)
+npx morphik-mcp --allowed-dir=~/Documents,~/Downloads
 ```
 
 ### Option 2: Global installation
@@ -39,6 +43,9 @@ morphik-mcp
 
 # Connect to Morphik cloud platform
 morphik-mcp --uri=https://api.morphik.ai
+
+# Specify allowed directories for file operations
+morphik-mcp --allowed-dir=~/Documents,~/Downloads
 ```
 
 ### Option 3: Local development
@@ -57,8 +64,8 @@ npm run build
 # Start the server (local Morphik)
 npm start
 
-# Start the server (Morphik cloud)
-node build/index.js --uri=https://api.morphik.ai
+# Start the server with file operations enabled
+node build/index.js --allowed-dir=~/Documents,~/Downloads
 ```
 
 The server runs on standard input/output streams and can be used with MCP clients like Claude.
@@ -80,6 +87,10 @@ Add this to your Claude Desktop configuration file:
     "morphik-cloud": {
       "command": "npx",
       "args": ["-y", "morphik-mcp", "--uri=https://api.morphik.ai"]
+    },
+    "morphik-with-files": {
+      "command": "npx",
+      "args": ["-y", "morphik-mcp", "--allowed-dir=~/Documents,~/Downloads"]
     }
   }
 }
@@ -93,6 +104,12 @@ The server provides the following tools:
 
 - `ingest-text`: Ingest a text document into Morphik
   - Parameters: content, filename (optional), metadata (optional), apiKey
+
+- `ingest-file-from-path`: Ingest a file from the server's filesystem into Morphik
+  - Parameters: path, metadata (optional), rules (optional), folderName (optional), endUserId (optional), useColpali (optional)
+
+- `ingest-files-from-paths`: Batch ingest multiple files from the server's filesystem
+  - Parameters: paths, metadata (optional), rules (optional), folderName (optional), endUserId (optional), useColpali (optional)
 
 ### 2. Document Retrieval
 
@@ -117,6 +134,26 @@ The server provides the following tools:
 
 - `delete-document`: Delete a document from Morphik by ID
   - Parameters: documentId, apiKey
+
+### 5. File System Navigation
+
+- `list-allowed-directories`: List directories that the server is allowed to access
+  - Parameters: none
+
+- `list-directory`: List files and subdirectories in a specific directory
+  - Parameters: path
+
+- `search-files`: Search for files matching a pattern in a directory and its subdirectories
+  - Parameters: path, pattern, excludePatterns (optional)
+
+- `get-file-info`: Get detailed information about a file or directory
+  - Parameters: path
+
+## File Operations Security
+
+For security reasons, file operations are restricted to directories explicitly allowed when starting the server using the `--allowed-dir` parameter. If no directories are specified, only the user's home directory will be accessible.
+
+The server validates all file paths to ensure they're within allowed directories, preventing access to sensitive system files. Symlinks are also checked to ensure they don't point outside allowed directories.
 
 ## Development
 
