@@ -1,0 +1,13 @@
+{
+    "mcpServers": {
+      "morphik-local-dev": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@morphik/mcp@latest",
+          "--uri=<YOUR_MORPHIK_URI>",
+          "--allowed-dir=<YOUR_ALLOWED_DIR>"
+        ]
+      }
+    }
+  }
