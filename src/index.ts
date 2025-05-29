@@ -548,8 +548,13 @@ server.tool(
 
     // Format the results with support for images
     const contentItemPromises = response.map(async (chunk) => {
-      // For images, check if metadata indicates it's an image
-      if (chunk.metadata && chunk.metadata.is_image === true) {
+      // For images, check multiple conditions to detect image content
+      const isImage = (chunk.metadata && chunk.metadata.is_image === true) ||
+                     chunk.content_type?.startsWith('image/') ||
+                     (chunk.content && chunk.content.startsWith('data:image/')) ||
+                     (chunk.content && chunk.content.length > 50000 && /^[A-Za-z0-9+/=]+$/.test(chunk.content.trim()));
+      
+      if (isImage) {
         // Extract the base64 data from the data URI (remove the prefix if present)
         let imageData = chunk.content;
         if (imageData.startsWith('data:')) {
@@ -638,8 +643,12 @@ server.tool(
 
     // Format the results, handling potential image content
     const contentItemPromises = response.map(async (doc) => {
-      // Check for image documents
-      if (doc.metadata && doc.metadata.is_image === true) {
+      // Check for image documents using multiple detection methods
+      const isImage = (doc.metadata && doc.metadata.is_image === true) ||
+                     (doc.content.value && doc.content.value.startsWith('data:image/')) ||
+                     (doc.content.value && doc.content.value.length > 50000 && /^[A-Za-z0-9+/=]+$/.test(doc.content.value.trim()));
+      
+      if (isImage) {
         let imageData = doc.content.value;
         if (imageData.startsWith('data:')) {
           imageData = imageData.split(',')[1] || imageData;
