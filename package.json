@@ -4,7 +4,7 @@
   "type": "module",
   "main": "build/index.js",
   "bin": {
-    "morphik-mcp": "./build/index.js"
+    "morphik-mcp": "build/index.js"
   },
   "scripts": {
     "test": "jest",
@@ -32,7 +32,7 @@
   "description": "MCP server for Morphik multimodal database",
   "repository": {
     "type": "git",
-    "url": "https://github.com/morphik-org/morphik-npm-mcp.git"
+    "url": "git+https://github.com/morphik-org/morphik-npm-mcp.git"
   },
   "engines": {
     "node": ">=16.0.0"
