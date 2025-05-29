@@ -238,15 +238,22 @@ const MAX_IMAGE_SIZE = 900 * 1024; // 900KB
 /**
  * Resizes an image to ensure it's under the maximum size limit for Claude
  * @param imageData Base64-encoded image data
- * @returns Resized base64-encoded image data
+ * @returns Object with resized base64-encoded image data and MIME type
  */
-async function resizeImageIfNeeded(imageData: string): Promise<string> {
+async function resizeImageIfNeeded(imageData: string): Promise<{ data: string; mimeType: string }> {
   // Convert base64 to buffer
   const buffer = Buffer.from(imageData, 'base64');
   
-  // If image is already under the size limit, return it as is
+  // If image is already under the size limit, detect format and return it as is
   if (buffer.length <= MAX_IMAGE_SIZE) {
-    return imageData;
+    try {
+      const metadata = await sharp(buffer).metadata();
+      const mimeType = metadata.format ? `image/${metadata.format}` : 'image/png';
+      return { data: imageData, mimeType };
+    } catch (error) {
+      // If we can't detect format, assume PNG
+      return { data: imageData, mimeType: 'image/png' };
+    }
   }
   
   // Calculate resize factor based on current size
@@ -281,14 +288,21 @@ async function resizeImageIfNeeded(imageData: string): Promise<string> {
         
       console.error(`Further resized image to ${furtherResizedBuffer.length} bytes with quality ${Math.floor(qualityFactor)}`);
       
-      return furtherResizedBuffer.toString('base64');
+      return { data: furtherResizedBuffer.toString('base64'), mimeType: 'image/webp' };
     }
     
-    return resizedImageBuffer.toString('base64');
+    return { data: resizedImageBuffer.toString('base64'), mimeType: 'image/webp' };
   } catch (error) {
     console.error("Error resizing image:", error);
-    // Fall back to original image if resize fails
-    return imageData;
+    // Fall back to original image if resize fails - try to detect format
+    try {
+      const buffer = Buffer.from(imageData, 'base64');
+      const metadata = await sharp(buffer).metadata();
+      const mimeType = metadata.format ? `image/${metadata.format}` : 'image/png';
+      return { data: imageData, mimeType };
+    } catch {
+      return { data: imageData, mimeType: 'image/png' };
+    }
   }
 }
 
@@ -564,13 +578,13 @@ server.tool(
         
         try {
           // Resize the image if needed to stay under Claude's size limit
-          const resizedImageData = await resizeImageIfNeeded(imageData);
+          const resizedImage = await resizeImageIfNeeded(imageData);
           
           // Create a proper image resource in the format expected by MCP
           return {
             type: "image" as const,
-            data: resizedImageData, // Use the possibly resized image data
-            mimeType: "image/png" // Images are always PNG or WebP after resize
+            data: resizedImage.data, // Use the possibly resized image data
+            mimeType: resizedImage.mimeType // Use the correct MIME type
           };
         } catch (error) {
           console.error("Error processing image data:", error);
@@ -656,12 +670,12 @@ server.tool(
         
         try {
           // Resize the image if needed to stay under Claude's size limit
-          const resizedImageData = await resizeImageIfNeeded(imageData);
+          const resizedImage = await resizeImageIfNeeded(imageData);
           
           return {
             type: "image" as const,
-            data: resizedImageData,
-            mimeType: "image/png" // Images are always PNG or WebP after resize
+            data: resizedImage.data,
+            mimeType: resizedImage.mimeType // Use the correct MIME type
           };
         } catch (error) {
           console.error("Error processing image data:", error);
