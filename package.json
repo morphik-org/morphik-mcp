@@ -38,9 +38,13 @@
     "node": ">=16.0.0"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.8.0",
+    "@modelcontextprotocol/sdk": "^1.17.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
     "@types/minimatch": "^5.1.2",
     "@types/sharp": "^0.32.0",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
     "form-data": "^4.0.2",
     "minimatch": "^10.0.1",
     "node-fetch": "^3.3.2",
