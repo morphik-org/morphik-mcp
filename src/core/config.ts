@@ -17,7 +17,7 @@ export function normalizePath(p: string): string {
 // Parse command line arguments and return configuration
 export function parseConfig(): MorphikConfig {
   const args = process.argv.slice(2);
-  let morphikApiBase = "http://localhost:8000"; // Default Base URL for Morphik API
+  let morphikApiBase = process.env.API_URI || "http://localhost:8000"; // Default Base URL for Morphik API
   let authToken = ""; // Bearer token for authentication
   let uriProvided = false;
   let allowedDirectories: string[] = [];
@@ -63,8 +63,8 @@ export function parseConfig(): MorphikConfig {
     }
   }
 
-  // If no URI was provided, use localhost
-  if (!uriProvided) {
+  // If no URI was provided, use environment variable or localhost
+  if (!uriProvided && !process.env.API_URI) {
     morphikApiBase = "http://localhost:8000";
   }
 
