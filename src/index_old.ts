@@ -1,11 +1,7 @@
 #!/usr/bin/env node
 
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
-import express, { Request, Response } from "express";
-import cors from "cors";
-import { randomUUID } from "node:crypto";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import sharp from "sharp";
 import fs from "fs/promises";
@@ -16,9 +12,6 @@ import FormData from "form-data";
 import { minimatch } from "minimatch";
 import fetch from "node-fetch";
 import type { RequestInit } from "node-fetch";
-
-// HTTP server configuration
-const PORT = process.env.PORT || 3000;
 
 // Parse command line arguments
 const args = process.argv.slice(2);
@@ -472,7 +465,7 @@ interface SearchFilesResult {
   matches: string[];
 }
 
-// Create MCP server function (extracted for reuse)\nfunction createMcpServer(): McpServer {
+// Create server instance
 const server = new McpServer({
   name: "morphik",
   version: "1.0.0",
@@ -1307,14 +1300,11 @@ server.tool(
   },
 );
 
-  // Return the configured server\n  return server;\n}\n\n// NOTE: Resource template code removed to prevent continuous /documents requests
+// NOTE: Resource template code removed to prevent continuous /documents requests
 // Images are already handled directly in the retrieve-chunks and retrieve-docs tools
 
 async function main() {
-  // const transport = new StdioServerTransport();
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: () => crypto.randomUUID(),
-  });
+  const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("Morphik MCP Server running on stdio");
   console.error(`File operations enabled: ${allowedDirectories.length} allowed ${allowedDirectories.length === 1 ? 'directory' : 'directories'}`);
