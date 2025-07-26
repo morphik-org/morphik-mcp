@@ -531,4 +531,83 @@ export function registerMorphikTools(server: McpServer, config: MorphikConfig) {
       };
     },
   );
+
+  // 7. Check Ingestion Status
+  server.tool(
+    "check-ingestion-status",
+    "Monitor the processing status of documents being ingested into Morphik. This tool is essential for tracking the progress of file uploads and ensuring documents are successfully processed before attempting retrieval. Use it after ingesting files to verify when content becomes available for searching, especially important for large files or batch operations that may take time to process.",
+    {
+      documentId: z.string().describe("ID of the document to check status for"),
+    },
+    async ({ documentId }) => {
+      // Make API request
+      const response = await makeMorphikRequest<any>({
+        url: `/documents/${documentId}/status`,
+        method: "GET",
+        config,
+      });
+
+      if (!response) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Failed to get status for document with ID ${documentId}`,
+            },
+          ],
+        };
+      }
+
+      // Format the status response
+      let statusText = `Document Status for ID: ${documentId}\n\n`;
+      
+      if (response.status) {
+        statusText += `Status: ${response.status}\n`;
+      }
+      
+      if (response.message) {
+        statusText += `Message: ${response.message}\n`;
+      }
+      
+      if (response.error) {
+        statusText += `Error: ${response.error}\n`;
+      }
+      
+      if (response.created_at) {
+        statusText += `Created: ${response.created_at}\n`;
+      }
+      
+      if (response.updated_at) {
+        statusText += `Updated: ${response.updated_at}\n`;
+      }
+      
+      if (response.chunk_count !== undefined) {
+        statusText += `Chunks: ${response.chunk_count}\n`;
+      }
+      
+      if (response.processing_time !== undefined) {
+        statusText += `Processing Time: ${response.processing_time}s\n`;
+      }
+
+      // Add any additional fields from the response
+      const knownFields = ['status', 'message', 'error', 'created_at', 'updated_at', 'chunk_count', 'processing_time'];
+      const additionalFields = Object.keys(response).filter(key => !knownFields.includes(key));
+      
+      if (additionalFields.length > 0) {
+        statusText += `\nAdditional Information:\n`;
+        for (const field of additionalFields) {
+          statusText += `${field}: ${JSON.stringify(response[field])}\n`;
+        }
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: statusText,
+          },
+        ],
+      };
+    },
+  );
 }
