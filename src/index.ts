@@ -7,7 +7,7 @@ import { parseConfig } from "./core/config.js";
 import { createMcpServer } from "./core/server.js";
 
 // HTTP server configuration
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8976;
 
 async function main() {
   // Parse configuration from command line arguments
