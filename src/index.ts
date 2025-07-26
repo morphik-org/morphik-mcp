@@ -2,6 +2,12 @@
 
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { mcpAuthRouter, createOAuthMetadata } from "@modelcontextprotocol/sdk/server/auth/router.js";
+import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
+import { AuthorizationParams, OAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/provider.js";
+import { OAuthRegisteredClientsStore } from "@modelcontextprotocol/sdk/server/auth/clients.js";
+import { OAuthClientInformationFull, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import express, { Request, Response } from "express";
 import cors from "cors";
 import { z } from "zod";
@@ -14,6 +20,7 @@ import FormData from "form-data";
 import { minimatch } from "minimatch";
 import fetch from "node-fetch";
 import type { RequestInit } from "node-fetch";
+import { randomUUID } from "crypto";
 
 // HTTP server configuration
 const PORT = process.env.PORT || 3000;
@@ -317,13 +324,27 @@ export async function makeMorphikRequest<T>({
   method = "GET",
   body = undefined,
   isMultipart = false,
+  authInfo = undefined,
 }: {
   url: string;
   method?: string;
   body?: any;
   isMultipart?: boolean;
+  authInfo?: AuthInfo;
 }): Promise<T | null> {
-  const fullUrl = url.startsWith("http") ? url : `${MORPHIK_API_BASE}${url}`;
+  // Determine the appropriate API base and auth token
+  let apiBase = MORPHIK_API_BASE;
+  let authToken = AUTH_TOKEN;
+  
+  // If OAuth auth info is provided, use the user-specific URI and token
+  if (authInfo?.extra?.morphikUri) {
+    apiBase = authInfo.extra.morphikUri as string;
+    // In production, you would extract the actual Morphik API token from the OAuth token
+    // For now, we'll use the existing AUTH_TOKEN or derive it from OAuth
+    authToken = authInfo.token; // This would be mapped to actual Morphik token
+  }
+  
+  const fullUrl = url.startsWith("http") ? url : `${apiBase}${url}`;
   
   // Prepare headers based on content type and authorization
   const headers: Record<string, string> = {
@@ -331,8 +352,8 @@ export async function makeMorphikRequest<T>({
   };
   
   // Add Authorization header if we have a token
-  if (AUTH_TOKEN) {
-    headers["Authorization"] = `Bearer ${AUTH_TOKEN}`;
+  if (authToken) {
+    headers["Authorization"] = `Bearer ${authToken}`;
   }
   
   if (!isMultipart && body !== undefined) {
@@ -470,6 +491,154 @@ interface SearchFilesResult {
   matches: string[];
 }
 
+// OAuth Provider Implementation for Morphik Integration
+class MorphikOAuthClientsStore implements OAuthRegisteredClientsStore {
+  private clients = new Map<string, OAuthClientInformationFull>();
+
+  async getClient(clientId: string): Promise<OAuthClientInformationFull | undefined> {
+    return this.clients.get(clientId);
+  }
+
+  async registerClient(clientMetadata: OAuthClientInformationFull): Promise<OAuthClientInformationFull> {
+    const clientId = randomUUID();
+    const client: OAuthClientInformationFull = {
+      ...clientMetadata,
+      client_id: clientId,
+      client_id_issued_at: Math.floor(Date.now() / 1000),
+    };
+    this.clients.set(clientId, client);
+    return client;
+  }
+}
+
+class MorphikOAuthProvider implements OAuthServerProvider {
+  clientsStore: MorphikOAuthClientsStore;
+  private codes = new Map<string, { client: OAuthClientInformationFull; params: AuthorizationParams; codeChallenge?: string }>();
+  private tokens = new Map<string, { clientId: string; scopes: string[]; userId: string; morphikUri: string; expiresAt: number }>();
+
+  constructor() {
+    this.clientsStore = new MorphikOAuthClientsStore();
+  }
+
+  async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response): Promise<void> {
+    // Generate authorization code
+    const code = randomUUID();
+    
+    // Store the authorization code with client and params
+    this.codes.set(code, { 
+      client, 
+      params,
+      codeChallenge: params.codeChallenge 
+    });
+
+    // Construct the Morphik website authorization URL
+    // This will redirect users to your Morphik website for authentication
+    const morphikAuthUrl = new URL('/oauth/authorize', MORPHIK_API_BASE);
+    morphikAuthUrl.searchParams.set('client_id', client.client_id);
+    morphikAuthUrl.searchParams.set('redirect_uri', params.redirectUri);
+    morphikAuthUrl.searchParams.set('state', params.state || '');
+    morphikAuthUrl.searchParams.set('scope', params.scopes?.join(' ') || '');
+    morphikAuthUrl.searchParams.set('code_challenge', params.codeChallenge || '');
+    morphikAuthUrl.searchParams.set('code_challenge_method', 'S256');
+    morphikAuthUrl.searchParams.set('mcp_code', code); // Pass our internal code to Morphik
+
+    // Redirect to Morphik website for authentication
+    res.redirect(morphikAuthUrl.toString());
+  }
+
+  async challengeForAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<string> {
+    const codeData = this.codes.get(authorizationCode);
+    if (!codeData || codeData.client.client_id !== client.client_id) {
+      throw new Error('Invalid authorization code');
+    }
+    return codeData.codeChallenge || '';
+  }
+
+  async exchangeAuthorizationCode(
+    client: OAuthClientInformationFull, 
+    authorizationCode: string, 
+    codeVerifier?: string
+  ): Promise<OAuthTokens> {
+    const codeData = this.codes.get(authorizationCode);
+    if (!codeData || codeData.client.client_id !== client.client_id) {
+      throw new Error('Invalid authorization code');
+    }
+
+    // Verify PKCE if provided
+    if (codeData.codeChallenge && codeVerifier) {
+      // TODO: Implement proper PKCE verification
+      // For now, we'll skip this check in demo mode
+    }
+
+    // Here we would normally exchange the code with Morphik backend
+    // For now, we'll generate a token directly
+    // In production, this should:
+    // 1. Validate the code with Morphik backend
+    // 2. Get user info and morphik URI from backend
+    // 3. Generate scoped access token
+
+    const accessToken = randomUUID();
+    const refreshToken = randomUUID();
+    const expiresAt = Date.now() + (3600 * 1000); // 1 hour
+
+    // Store token info - in production this would come from Morphik backend
+    this.tokens.set(accessToken, {
+      clientId: client.client_id,
+      scopes: codeData.params.scopes || [],
+      userId: 'demo-user', // This would come from Morphik auth
+      morphikUri: MORPHIK_API_BASE, // This would be user-specific URI from Morphik
+      expiresAt
+    });
+
+    // Clean up authorization code
+    this.codes.delete(authorizationCode);
+
+    return {
+      access_token: accessToken,
+      token_type: 'Bearer',
+      expires_in: 3600,
+      refresh_token: refreshToken,
+      scope: codeData.params.scopes?.join(' ')
+    };
+  }
+
+  async exchangeRefreshToken(
+    client: OAuthClientInformationFull, 
+    refreshToken: string, 
+    scopes?: string[], 
+    resource?: URL
+  ): Promise<OAuthTokens> {
+    // TODO: Implement refresh token logic
+    throw new Error('Refresh token exchange not implemented');
+  }
+
+  async verifyAccessToken(token: string): Promise<AuthInfo> {
+    const tokenInfo = this.tokens.get(token);
+    if (!tokenInfo || tokenInfo.expiresAt < Date.now()) {
+      throw new Error('Invalid or expired token');
+    }
+
+    return {
+      token,
+      clientId: tokenInfo.clientId,
+      scopes: tokenInfo.scopes,
+      expiresAt: Math.floor(tokenInfo.expiresAt / 1000),
+      // Include Morphik-specific info that can be used by tools
+      extra: {
+        userId: tokenInfo.userId,
+        morphikUri: tokenInfo.morphikUri
+      }
+    };
+  }
+}
+
+// Create OAuth provider instance
+const oauthProvider = new MorphikOAuthProvider();
+
+// Request-scoped auth context (simple approach for demo)
+// In production, you'd use AsyncLocalStorage or similar
+let currentAuthInfo: AuthInfo | undefined;
+
 // Create server instance
 const server = new McpServer({
   name: "morphik",
@@ -503,6 +672,7 @@ server.tool(
       url: "/ingest/text",
       method: "POST",
       body: requestBody,
+      authInfo: currentAuthInfo,
     });
 
     if (!response) {
@@ -552,6 +722,7 @@ server.tool(
       url: "/retrieve/chunks",
       method: "POST",
       body: requestBody,
+      authInfo: currentAuthInfo,
     });
 
     if (!response || response.length === 0) {
@@ -706,6 +877,24 @@ async function main() {
   
   // Add URL encoded parsing middleware
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+  // Create OAuth metadata
+  const serverUrl = new URL(`http://localhost:${PORT}`);
+  const oauthMetadata = createOAuthMetadata({
+    provider: oauthProvider,
+    issuerUrl: serverUrl,
+    baseUrl: serverUrl,
+    scopesSupported: ['morphik:read', 'morphik:write']
+  });
+
+  // Add OAuth router for authorization endpoints
+  app.use(mcpAuthRouter({
+    provider: oauthProvider,
+    issuerUrl: serverUrl,
+    baseUrl: serverUrl,
+    scopesSupported: ['morphik:read', 'morphik:write'],
+    resourceName: 'Morphik MCP Server'
+  }));
   
   // Health check endpoint
   app.get('/health', (_req: Request, res: Response) => {
@@ -718,9 +907,27 @@ async function main() {
     });
   });
   
-  // MCP endpoint for stateless mode
-  app.post('/mcp', async (req: Request, res: Response) => {
+  // MCP endpoint for stateless mode with optional OAuth protection
+  app.post('/mcp', 
+    // Add OAuth middleware but make it optional for backwards compatibility
+    (req: Request, res: Response, next: any) => {
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        // If there's a Bearer token, validate it
+        requireBearerAuth({ 
+          verifier: oauthProvider,
+          resourceMetadataUrl: `${serverUrl}/.well-known/oauth-protected-resource`
+        })(req, res, next);
+      } else {
+        // No OAuth token, proceed without auth (backwards compatibility)
+        next();
+      }
+    },
+    async (req: Request, res: Response) => {
     try {
+      // Set auth context for this request
+      currentAuthInfo = (req as any).auth;
+      
       // Create new server and transport for each request (stateless)
       const server = createMcpServer();
       const transport = new StreamableHTTPServerTransport({
@@ -734,6 +941,7 @@ async function main() {
       req.on('close', () => {
         transport.close();
         server.close();
+        currentAuthInfo = undefined; // Clear auth context
       });
 
     } catch (error) {
