@@ -2,9 +2,9 @@
 
 # Build the project
 echo "Building the project..."
-npm run build
+npm run build:streamable
 
 # Pass all arguments directly to the node process
 # The config.ts will parse --uri= arguments
 echo "Starting MCP server..."
-node build/index.js "$@"
+node build/index_http.js "$@"

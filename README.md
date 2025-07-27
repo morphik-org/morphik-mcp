@@ -12,6 +12,10 @@ This MCP server allows Claude and other MCP-compatible AI assistants to interact
 - Document management (listing, getting, deleting)
 - File system navigation and file ingestion from paths
 
+The server supports two transport modes:
+- **stdio** (default): Standard input/output for use with Claude Desktop and other MCP clients
+- **Streamable HTTPS**: HTTP/HTTPS endpoint for web-based integrations
+
 ## Prerequisites
 
 You need access to either:
@@ -68,7 +72,9 @@ npm start
 node build/index.js --allowed-dir=~/Documents,~/Downloads
 ```
 
-The server runs on standard input/output streams and can be used with MCP clients like Claude.
+The server runs on standard input/output streams by default and can be used with MCP clients like Claude.
+
+For HTTP/HTTPS mode (streamable), see the [streamable_https.md](streamable_https.md) documentation.
 
 ## Usage with Claude Desktop
 

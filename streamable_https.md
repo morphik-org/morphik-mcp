@@ -3,14 +3,14 @@
 ## Quick Start
 
 ```bash
-# Build the project
-npm run build
+# Build the project for streamable HTTPS
+npm run build:streamable
 
 # Run with default localhost:8000 (no authentication)
-./start_mcp
+./start_streamable
 
 # Run with custom API endpoint (must include protocol)
-./start_mcp --uri=https://my-api.morphik.ai
+./start_streamable --uri=https://my-api.morphik.ai
 ```
 
 ## Authentication
@@ -22,7 +22,7 @@ When using the `morphik://` URI format, the server extracts the token and adds i
 For authenticated connections, use the special `morphik://` URI format:
 
 ```bash
-./start_mcp --uri=morphik://owner_id:your-token-here@api.morphik.ai
+./start_streamable --uri=morphik://owner_id:your-token-here@api.morphik.ai
 ```
 
 This format:
@@ -34,13 +34,13 @@ This format:
 
 ```bash
 # Local development (no auth)
-./start_mcp
+./start_streamable
 
 # Custom endpoint without auth (must include protocol)
-./start_mcp --uri=http://dev.morphik.ai
+./start_streamable --uri=http://dev.morphik.ai
 
 # Production with authentication using morphik:// format
-./start_mcp --uri=morphik://myorg:sk-abc123xyz@api.morphik.ai
+./start_streamable --uri=morphik://myorg:sk-abc123xyz@api.morphik.ai
 ```
 
 ## How It Works
@@ -60,7 +60,7 @@ You can also use environment variables:
 ```bash
 export API_URI=https://api.morphik.ai
 export PORT=3000
-npm start
+node build/index_http.js
 ```
 
 Note: The `API_URI` environment variable doesn't support the `morphik://` format - use command line arguments for authenticated connections.
