@@ -261,7 +261,96 @@ export function registerFileTools(server: McpServer, config: MorphikConfig) {
     },
   );
 
-  // 12. Batch Ingest Files
+  // 12. Ingest File From Base64
+  server.tool(
+    "ingest-file-from-base64",
+    "Add a file to Morphik's knowledge base by providing base64-encoded file content. This is useful in HTTP/HTTPS transport mode where clients may not have direct file system access. The tool decodes the base64 data and uploads it to Morphik.",
+    {
+      filename: z.string().describe("The filename including extension (e.g., 'document.pdf', 'image.png')"),
+      base64Content: z.string().describe("Base64-encoded file content"),
+      metadata: z.record(z.any()).optional().describe("Optional metadata to associate with the file"),
+      rules: z.array(z.any()).optional().describe("Optional processing rules"),
+      folderName: z.string().optional().describe("Optional folder to organize the document"),
+      endUserId: z.string().optional().describe("Optional end user ID for scoping"),
+      useColpali: z.boolean().optional().describe("Whether to use the colpali embedding model"),
+    },
+    async ({ filename, base64Content, metadata, rules, folderName, endUserId, useColpali }) => {
+      try {
+        // Decode base64 content to buffer
+        const buffer = Buffer.from(base64Content, 'base64');
+        
+        // Create a form data object
+        const formData = new FormData();
+        
+        // Add the file buffer
+        formData.append('file', buffer, {
+          filename: filename,
+          contentType: getMimeType(filename)
+        });
+        
+        // Add metadata (required, default "{}")
+        formData.append('metadata', metadata ? JSON.stringify(metadata) : "{}");
+        
+        // Add rules (required, default "[]")
+        formData.append('rules', rules ? JSON.stringify(rules) : "[]");
+        
+        // Add folder name if provided
+        if (folderName) {
+          formData.append('folder_name', folderName);
+        }
+        
+        if (endUserId) {
+          formData.append('end_user_id', endUserId);
+        }
+        
+        // Add use_colpali if provided
+        if (useColpali !== undefined) {
+          formData.append('use_colpali', useColpali.toString());
+        }
+        
+        const url = `/ingest/file`;
+        
+        // Make direct request
+        const response = await makeDirectRequest<Document>(url, formData, config);
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Successfully ingested file "${filename}" from base64 with document ID: ${response.external_id}`,
+            },
+          ],
+        };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        // Construct detailed error message
+        let payloadSummary = `FormData included keys: file`;
+        if (metadata) payloadSummary += ", metadata";
+        if (rules) payloadSummary += ", rules";
+        if (folderName) payloadSummary += ", folder_name";
+        if (endUserId) payloadSummary += ", end_user_id";
+        if (useColpali !== undefined) payloadSummary += ", use_colpali";
+        
+        const url = `/ingest/file`;
+        
+        const errorDetails = [
+          `Error ingesting file from base64: ${errorMessage}`,
+          `Filename: ${filename}`,
+          `Base64 content length: ${base64Content.length} characters`,
+          `Target URL: ${config.apiBase}${url}`,
+          `Method: POST`,
+          `Payload Summary: ${payloadSummary}`,
+        ].join('\n');
+        
+        return {
+          content: [{ type: "text", text: errorDetails }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  // 13. Batch Ingest Files
   server.tool(
     "ingest-files-from-paths",
     "Add multiple files to Morphik's knowledge base simultaneously by providing their paths on the server's file system. This batch operation is more efficient than ingesting files one by one.",
