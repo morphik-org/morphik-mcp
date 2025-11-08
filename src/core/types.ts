@@ -73,10 +73,33 @@ export interface RetrieveRequest {
   end_user_id?: string;
 }
 
-export interface ListDocumentsRequest {
-  document_filters?: Record<string, any>;
+export interface ListDocsRequest {
+  document_filters?: Record<string, any> | null;
   skip?: number;
   limit?: number;
+  return_documents?: boolean;
+  include_total_count?: boolean;
+  include_status_counts?: boolean;
+  include_folder_counts?: boolean;
+  sort_by?: 'created_at' | 'updated_at' | 'filename' | 'external_id' | null;
+  sort_direction?: 'asc' | 'desc';
+  fields?: string[] | null;
+}
+
+export interface DocumentPagesRequest {
+  document_id: string;
+  start_page: number;
+  end_page: number;
+  folder_name?: string | string[] | null;
+  end_user_id?: string | null;
+}
+
+export interface DocumentPagesResponse {
+  document_id: string;
+  pages: string[];
+  start_page: number;
+  end_page: number;
+  total_pages: number;
 }
 
 // File operation interfaces

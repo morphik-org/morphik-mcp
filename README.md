@@ -104,7 +104,9 @@ Add this to your Claude Desktop configuration file:
 
 ## MCP Tools
 
-The server provides the following tools:
+See [MCP_TOOLS.md](./MCP_TOOLS.md) for detailed parameter docs and response formats.
+
+The server currently provides the following tools, with additional capabilities on the way:
 
 ### 1. Document Ingestion
 
@@ -114,26 +116,27 @@ The server provides the following tools:
 - `ingest-file-from-path`: Ingest a file from the server's filesystem into Morphik
   - Parameters: path, metadata (optional), rules (optional), folderName (optional), endUserId (optional), useColpali (optional)
 
+- `ingest-file-from-base64`: Upload a file by providing its filename plus base64-encoded bytes (works in HTTP transports where disk access isn't possible)
+  - Parameters: filename, base64Content, metadata (optional), rules (optional), folderName (optional), endUserId (optional), useColpali (optional)
+
 - `ingest-files-from-paths`: Batch ingest multiple files from the server's filesystem
   - Parameters: paths, metadata (optional), rules (optional), folderName (optional), endUserId (optional), useColpali (optional)
 
-### 2. Document Retrieval
+### 2. Document Retrieval & Navigation
 
-- `retrieve-chunks`: Retrieve relevant chunks from Morphik based on a query
-  - Parameters: query, filters (optional), k (optional), minScore (optional), apiKey
+- `retrieve-chunks`: Retrieve the most relevant "pages" (text or image chunks) for a query, identical to the `find_relevant_pages` tool in `@morphik-app`
+  - Parameters: query, filters (optional), k (optional), minScore (optional), folderName (optional), endUserId (optional), useColpali/useReranking (optional), padding (optional for adjacent context)
 
 - `retrieve-docs`: Retrieve relevant documents from Morphik based on a query
-  - Parameters: query, filters (optional), k (optional), minScore (optional), apiKey
+  - Parameters: query, filters (optional), k (optional), minScore (optional), folderName (optional), endUserId (optional)
 
-### 3. Document Querying
+- `search-documents`: Search for documents by filename or title using full-text search
+  - Parameters: query, limit (optional, 1-100), folderName (optional), endUserId (optional)
 
-- `query`: Generate a completion using relevant chunks as context
-  - Parameters: query, filters (optional), k (optional), maxTokens (optional), temperature (optional), apiKey
+- `get-pages-in-range`: Fetch an inclusive range of pages (max 10) from a document, matching `get_all_pages_within_range_from_document` in `@morphik-app`
+  - Parameters: documentId, startPage, endPage, folderName (optional), endUserId (optional)
 
-### 4. Document Management
-
-- `list-documents`: List documents in Morphik
-  - Parameters: skip (optional), limit (optional), filters (optional), apiKey
+### 3. Document Management & Metadata
 
 - `get-document`: Get a specific document from Morphik by ID
   - Parameters: documentId, apiKey
@@ -141,7 +144,16 @@ The server provides the following tools:
 - `delete-document`: Delete a document from Morphik by ID
   - Parameters: documentId, apiKey
 
-### 5. File System Navigation
+- `check-ingestion-status`: Check the processing status for an ingested document
+  - Parameters: documentId, apiKey
+
+- `morphik-filters`: View, set, or clear typed metadata filters that automatically apply to retrieval/list operations (supports `eq`, `regex`, `number_range`, `date_range`)
+  - Parameters: action, expression/rules payload, logic (optional)
+
+- `list-documents`: Updated tool using `/documents/list_docs` with `include_total_count`, `return_documents`, `fields`, and folder/end-user scoping
+  - Parameters: skip, limit, filters/metadataFilters, get_count, folderName(s), endUserId, sortBy/sortDirection, fields
+
+### 4. File System Navigation
 
 - `list-allowed-directories`: List directories that the server is allowed to access
   - Parameters: none

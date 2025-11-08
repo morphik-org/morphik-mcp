@@ -1,75 +1,72 @@
 import sharp from "sharp";
 
-// Maximum image size for Claude (in bytes) - slightly under 1MB to be safe
-export const MAX_IMAGE_SIZE = 900 * 1024; // 900KB
+const MAX_DIMENSION = 1568;
+const MAX_MEGAPIXELS = 1.15 * 1_000_000; // Anthropic documented limit
+const DEFAULT_MIME = "image/png";
 
-/**
- * Resizes an image to ensure it's under the maximum size limit for Claude
- * @param imageData Base64-encoded image data
- * @returns Object with resized base64-encoded image data and MIME type
- */
-export async function resizeImageIfNeeded(imageData: string): Promise<{ data: string; mimeType: string }> {
-  // Convert base64 to buffer
-  const buffer = Buffer.from(imageData, 'base64');
-  
-  // If image is already under the size limit, detect format and return it as is
-  if (buffer.length <= MAX_IMAGE_SIZE) {
-    try {
-      const metadata = await sharp(buffer).metadata();
-      const mimeType = metadata.format ? `image/${metadata.format}` : 'image/png';
-      return { data: imageData, mimeType };
-    } catch (error) {
-      // If we can't detect format, assume PNG
-      return { data: imageData, mimeType: 'image/png' };
-    }
-  }
-  
-  // Calculate resize factor based on current size
-  const sizeFactor = Math.sqrt(MAX_IMAGE_SIZE / buffer.length);
-  
+const detectMimeType = async (buffer: Buffer): Promise<string> => {
   try {
-    // Get image metadata
     const metadata = await sharp(buffer).metadata();
-    
-    // Calculate new dimensions, keeping aspect ratio
-    const newWidth = Math.floor((metadata.width || 800) * sizeFactor);
-    const newHeight = Math.floor((metadata.height || 600) * sizeFactor);
-    
-    console.error(`Resizing image from ${buffer.length} bytes (${metadata.width}x${metadata.height}) to target ${MAX_IMAGE_SIZE} bytes (${newWidth}x${newHeight})`);
-    
-    // Resize and optimize the image
-    const resizedImageBuffer = await sharp(buffer)
-      .resize(newWidth, newHeight)
-      .webp({ quality: 80 }) // Use webp for better compression
+    return metadata.format ? `image/${metadata.format}` : DEFAULT_MIME;
+  } catch {
+    return DEFAULT_MIME;
+  }
+};
+
+export async function resizeImageIfNeeded(imageData: string): Promise<{ data: string; mimeType: string }> {
+  const buffer = Buffer.from(imageData, "base64");
+
+  try {
+    const image = sharp(buffer);
+    const metadata = await image.metadata();
+    const width = metadata.width ?? 0;
+    const height = metadata.height ?? 0;
+
+    // If we can't read dimensions, just return as-is with detected MIME
+    if (!width || !height) {
+      return { data: imageData, mimeType: await detectMimeType(buffer) };
+    }
+
+    const pixels = width * height;
+    if (width <= MAX_DIMENSION && height <= MAX_DIMENSION && pixels <= MAX_MEGAPIXELS) {
+      return { data: imageData, mimeType: await detectMimeType(buffer) };
+    }
+
+    let newWidth = width;
+    let newHeight = height;
+
+    if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+      const aspectRatio = width / height;
+      if (width >= height) {
+        newWidth = MAX_DIMENSION;
+        newHeight = Math.round(MAX_DIMENSION / aspectRatio);
+      } else {
+        newHeight = MAX_DIMENSION;
+        newWidth = Math.round(MAX_DIMENSION * aspectRatio);
+      }
+    }
+
+    const resizedPixels = newWidth * newHeight;
+    if (resizedPixels > MAX_MEGAPIXELS) {
+      const scaleFactor = Math.sqrt(MAX_MEGAPIXELS / resizedPixels);
+      newWidth = Math.round(newWidth * scaleFactor);
+      newHeight = Math.round(newHeight * scaleFactor);
+    }
+
+    const targetFormat =
+      metadata.format && sharp.format[metadata.format] ? metadata.format : "png";
+
+    const resizedBuffer = await sharp(buffer)
+      .resize(newWidth, newHeight, { fit: "inside", withoutEnlargement: true })
+      .toFormat(targetFormat as keyof sharp.FormatEnum)
       .toBuffer();
-    
-    console.error(`Resized image to ${resizedImageBuffer.length} bytes`);
-    
-    // If still too large, reduce quality further
-    if (resizedImageBuffer.length > MAX_IMAGE_SIZE) {
-      const qualityFactor = MAX_IMAGE_SIZE / resizedImageBuffer.length * 75; // Reduce quality proportionally
-      
-      const furtherResizedBuffer = await sharp(buffer)
-        .resize(newWidth, newHeight)
-        .webp({ quality: Math.floor(qualityFactor) })
-        .toBuffer();
-        
-      console.error(`Further resized image to ${furtherResizedBuffer.length} bytes with quality ${Math.floor(qualityFactor)}`);
-      
-      return { data: furtherResizedBuffer.toString('base64'), mimeType: 'image/webp' };
-    }
-    
-    return { data: resizedImageBuffer.toString('base64'), mimeType: 'image/webp' };
+
+    return {
+      data: resizedBuffer.toString("base64"),
+      mimeType: `image/${targetFormat}`,
+    };
   } catch (error) {
-    console.error("Error resizing image:", error);
-    // Fall back to original image if resize fails - try to detect format
-    try {
-      const buffer = Buffer.from(imageData, 'base64');
-      const metadata = await sharp(buffer).metadata();
-      const mimeType = metadata.format ? `image/${metadata.format}` : 'image/png';
-      return { data: imageData, mimeType };
-    } catch {
-      return { data: imageData, mimeType: 'image/png' };
-    }
+    console.warn("Image resizing failed, returning original image:", error);
+    return { data: imageData, mimeType: await detectMimeType(buffer) };
   }
 }
